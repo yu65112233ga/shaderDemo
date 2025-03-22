@@ -1,3 +1,10 @@
-cmake-build-debug-visual-studio
-.idea
-build
+# Build directories
+build/
+cmake-build-*
+
+# IDE files
+.idea/
+.vs/
+
+# Photo directory PNG files
+photo/*.png

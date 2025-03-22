@@ -3,11 +3,14 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <Windows.h>
+#include "ImageLoader.h"
+#include <filesystem>
 
 // Global variables
 HWND hWnd = nullptr;
 const int WINDOW_WIDTH = 800;
 const int WINDOW_HEIGHT = 600;
+ImageLoader imageLoader;
 
 // Window procedure
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -76,6 +79,43 @@ int main() {
         char buffer[MAX_PATH];
         GetCurrentDirectoryA(MAX_PATH, buffer);
         std::cout << "Current directory: " << buffer << std::endl;
+        
+        // Get the executable directory
+        std::filesystem::path exePath(buffer);
+        std::filesystem::path projectRoot = exePath;
+        
+        // If we're in the build directory, go up one level
+        if (exePath.filename() == "build" || exePath.filename() == "Debug" || exePath.filename() == "Release") {
+            projectRoot = exePath.parent_path();
+        }
+        if (projectRoot.filename() == "Debug" || projectRoot.filename() == "Release") {
+            projectRoot = projectRoot.parent_path().parent_path();
+        }
+        
+        // Construct the absolute path to the photo directory
+        std::filesystem::path photoPath = projectRoot / "photo";
+        std::string photoDir = photoPath.string();
+        
+        std::cout << "Looking for photos in: " << photoDir << std::endl;
+        
+        // Load images from photo directory
+        if (imageLoader.loadImagesFromDirectory(photoDir)) {
+            std::cout << "Successfully loaded images from " << photoDir << std::endl;
+            
+            // Print all loaded image names
+            std::vector<std::string> imageNames = imageLoader.getImageNames();
+            std::cout << "Loaded images:" << std::endl;
+            for (const auto& name : imageNames) {
+                const ImageData* img = imageLoader.getImage(name);
+                if (img) {
+                    std::cout << "  - " << name << ": " << img->width << "x" << img->height 
+                              << ", " << img->channels << " channels, " 
+                              << img->data.size() << " bytes" << std::endl;
+                }
+            }
+        } else {
+            std::cout << "No images found in " << photoDir << " directory" << std::endl;
+        }
         
         // Create window
         HINSTANCE hInstance = GetModuleHandle(NULL);

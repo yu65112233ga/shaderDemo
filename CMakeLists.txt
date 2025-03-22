@@ -9,11 +9,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Add ANGLE include directories
 include_directories(${CMAKE_SOURCE_DIR}/thirdparty/angle/include)
 
+# Add stb include directory
+include_directories(${CMAKE_SOURCE_DIR}/thirdparty)
+
 # Add ANGLE library directories
 link_directories(${CMAKE_SOURCE_DIR}/thirdparty/angle/libs)
 
 # Add executable
-add_executable(shaderDemo main.cpp)
+add_executable(shaderDemo main.cpp ImageLoader.cpp)
 
 # Link ANGLE libraries
 target_link_libraries(shaderDemo
