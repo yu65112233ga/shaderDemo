@@ -51,9 +51,6 @@ bool ImageLoader::loadImagesFromDirectory(const std::string& directory, const Im
         }
     }
     
-    // Sort files by name for consistent loading order
-    std::sort(pngFiles.begin(), pngFiles.end());
-    
     // Apply max images limit if specified
     if (options.maxImages > 0 && pngFiles.size() > static_cast<size_t>(options.maxImages)) {
         pngFiles.resize(options.maxImages);

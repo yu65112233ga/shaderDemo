@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include <unordered_map>
+#include <map>
 #include <vector>
 #include <filesystem>
 #include <iostream>
@@ -29,6 +29,21 @@ struct ImageLoadOptions {
     ImageLoadOptions() : maxImages(0), verbose(true) {}
 };
 
+// Custom comparator for numeric string sorting
+struct NumericStringCompare {
+    bool operator()(const std::string& a, const std::string& b) const {
+        // Try to convert strings to integers for numeric comparison
+        try {
+            int numA = std::stoi(a);
+            int numB = std::stoi(b);
+            return numA < numB;
+        } catch (const std::exception&) {
+            // Fall back to lexicographical comparison if conversion fails
+            return a < b;
+        }
+    }
+};
+
 class ImageLoader {
 public:
     ImageLoader();
@@ -50,8 +65,8 @@ public:
     void clearImages();
     
 private:
-    // Map of image name to image data
-    std::unordered_map<std::string, ImageData> images;
+    // Map of image name to image data, using ordered map with numeric string comparison
+    std::map<std::string, ImageData, NumericStringCompare> images;
     
     // Extract filename without extension
     std::string extractBaseName(const std::filesystem::path& path) const;
