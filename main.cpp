@@ -238,8 +238,6 @@ void updateTexture() {
         
         checkGLError("Texture update");
     }
-    
-    std::cout << "current image index: " << currentImageIndex << std::endl;
 }
 
 // Advance to the next frame
@@ -325,7 +323,7 @@ void cleanupGL() {
 
 int main() {
     try {
-        std::string photoDir = R"(E:\code\shaderDemo\photo2)";
+        std::string photoDir = R"(E:\code\shaderDemo\photo)";
         std::cout << "Looking for photos in: " << photoDir << std::endl;
 
         // Load images from photo directory
