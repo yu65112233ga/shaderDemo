@@ -14,6 +14,11 @@ const int WINDOW_WIDTH = 800;
 const int WINDOW_HEIGHT = 600;
 ImageLoader imageLoader;
 
+// Playback control variables
+bool isPaused = false;
+bool singleStepForward = false;
+bool singleStepBackward = false;
+
 // Shader sources
 const char* vertexShaderSource = R"(
     attribute vec4 aPosition;
@@ -47,6 +52,26 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     switch (message) {
     case WM_CLOSE:
         PostQuitMessage(0);
+        break;
+    case WM_KEYDOWN:
+        switch (wParam) {
+        case VK_SPACE:  // Space key - toggle pause
+            isPaused = !isPaused;
+            std::cout << (isPaused ? "Playback paused" : "Playback resumed") << std::endl;
+            break;
+        case VK_LEFT:  // Left arrow key - step backward
+            if (isPaused) {
+                singleStepBackward = true;
+                std::cout << "Step backward" << std::endl;
+            }
+            break;
+        case VK_RIGHT:  // Right arrow key - step forward
+            if (isPaused) {
+                singleStepForward = true;
+                std::cout << "Step forward" << std::endl;
+            }
+            break;
+        }
         break;
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);
@@ -214,9 +239,25 @@ void updateTexture() {
         checkGLError("Texture update");
     }
     
-    // Move to next image for the next frame
-    currentImageIndex = (currentImageIndex + 1) % imageNames.size();
     std::cout << "current image index: " << currentImageIndex << std::endl;
+}
+
+// Advance to the next frame
+void nextFrame() {
+    if (imageNames.empty()) return;
+    currentImageIndex = (currentImageIndex + 1) % imageNames.size();
+    updateTexture();
+}
+
+// Go back to the previous frame
+void previousFrame() {
+    if (imageNames.empty()) return;
+    if (currentImageIndex == 0) {
+        currentImageIndex = imageNames.size() - 1;
+    } else {
+        currentImageIndex--;
+    }
+    updateTexture();
 }
 
 // Render a textured quad
@@ -289,7 +330,7 @@ int main() {
 
         // Load images from photo directory
         ImageLoadOptions opt;
-        opt.maxImages = 10;
+        opt.maxImages = 100;
         if (imageLoader.loadImagesFromDirectory(photoDir, opt)) {
             std::cout << "Successfully loaded images from " << photoDir << std::endl;
             
@@ -423,11 +464,15 @@ int main() {
             return -1;
         }
         
+        // Load initial texture
+        updateTexture();
+        
         // Message loop
         MSG msg = {};
         bool running = true;
         
         std::cout << "Starting render loop..." << std::endl;
+        std::cout << "Controls: Space = Pause/Resume, Left Arrow = Previous Frame, Right Arrow = Next Frame" << std::endl;
         
         // Frame timing variables for 30 FPS
         const std::chrono::milliseconds frameTime(33); // ~30 FPS (1000ms / 30 = 33.33ms)
@@ -444,30 +489,44 @@ int main() {
                 DispatchMessage(&msg);
             }
             
+            // Handle single step controls
+            if (singleStepForward) {
+                nextFrame();
+                singleStepForward = false;
+            } else if (singleStepBackward) {
+                previousFrame();
+                singleStepBackward = false;
+            }
+            
             // Calculate time since last frame
             auto currentTime = std::chrono::steady_clock::now();
             auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(
                 currentTime - lastFrameTime);
             
-            // Only render if enough time has passed (for 30 FPS)
-            if (elapsedTime >= frameTime) {
-                // Update texture with current image
-                updateTexture();
-                
-                // Clear the screen
-                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-                glClear(GL_COLOR_BUFFER_BIT);
-                
-                // Render the textured quad
-                renderTexturedQuad();
-                
-                // Swap buffers
-                eglSwapBuffers(display, surface);
+            // Only render if enough time has passed (for 30 FPS) and not paused
+            if (elapsedTime >= frameTime && !isPaused) {
+                // Update texture with next image
+                nextFrame();
                 
                 // Update last frame time
                 lastFrameTime = currentTime;
+            }
+            
+            // Always render the current frame
+            // Clear the screen
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            
+            // Render the textured quad
+            renderTexturedQuad();
+            
+            // Swap buffers
+            eglSwapBuffers(display, surface);
+            
+            // Sleep to avoid excessive CPU usage
+            if (isPaused) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
             } else {
-                // Sleep to avoid excessive CPU usage
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         }

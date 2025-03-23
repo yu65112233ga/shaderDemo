@@ -66,7 +66,7 @@ bool ImageLoader::loadImagesFromDirectory(const std::string& directory, const Im
         
         // Load the image
         int width, height, channels;
-        stbi_set_flip_vertically_on_load(false); // Don't flip the image vertically
+        stbi_set_flip_vertically_on_load(true); // Don't flip the image vertically
 
         // Load at original size
         unsigned char* data = stbi_load(filePath.c_str(), &width, &height, &channels, 0);
