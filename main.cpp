@@ -5,12 +5,42 @@
 #include <Windows.h>
 #include "ImageLoader.h"
 #include <filesystem>
+#include <chrono>
+#include <thread>
 
 // Global variables
 HWND hWnd = nullptr;
 const int WINDOW_WIDTH = 800;
 const int WINDOW_HEIGHT = 600;
 ImageLoader imageLoader;
+
+// Shader sources
+const char* vertexShaderSource = R"(
+    attribute vec4 aPosition;
+    attribute vec2 aTexCoord;
+    varying vec2 vTexCoord;
+    void main() {
+        gl_Position = aPosition;
+        vTexCoord = aTexCoord;
+    }
+)";
+
+const char* fragmentShaderSource = R"(
+    precision mediump float;
+    varying vec2 vTexCoord;
+    uniform sampler2D uTexture;
+    void main() {
+        gl_FragColor = texture2D(uTexture, vTexCoord);
+    }
+)";
+
+// Shader program and texture variables
+GLuint shaderProgram = 0;
+GLuint texture = 0;
+
+// Current image index
+size_t currentImageIndex = 0;
+std::vector<std::string> imageNames;
 
 // Window procedure
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -73,19 +103,198 @@ void checkEGLError(const char* msg) {
     }
 }
 
+// Helper function to check GL errors
+void checkGLError(const char* msg) {
+    GLenum error = glGetError();
+    if (error != GL_NO_ERROR) {
+        std::cerr << "GL Error at " << msg << ": 0x" << std::hex << error << std::dec << std::endl;
+    }
+}
+
+// Compile shader
+GLuint compileShader(GLenum type, const char* source) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &source, NULL);
+    glCompileShader(shader);
+    
+    // Check compilation status
+    GLint success;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        GLchar infoLog[512];
+        glGetShaderInfoLog(shader, sizeof(infoLog), NULL, infoLog);
+        std::cerr << "Shader compilation error: " << infoLog << std::endl;
+        glDeleteShader(shader);
+        return 0;
+    }
+    
+    return shader;
+}
+
+// Create shader program
+GLuint createShaderProgram(const char* vertexSource, const char* fragmentSource) {
+    GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSource);
+    if (!vertexShader) return 0;
+    
+    GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
+    if (!fragmentShader) {
+        glDeleteShader(vertexShader);
+        return 0;
+    }
+    
+    GLuint program = glCreateProgram();
+    glAttachShader(program, vertexShader);
+    glAttachShader(program, fragmentShader);
+    glLinkProgram(program);
+    
+    // Check linking status
+    GLint success;
+    glGetProgramiv(program, GL_LINK_STATUS, &success);
+    if (!success) {
+        GLchar infoLog[512];
+        glGetProgramInfoLog(program, sizeof(infoLog), NULL, infoLog);
+        std::cerr << "Shader program linking error: " << infoLog << std::endl;
+        glDeleteProgram(program);
+        glDeleteShader(vertexShader);
+        glDeleteShader(fragmentShader);
+        return 0;
+    }
+    
+    // Shaders can be deleted after linking
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+    
+    return program;
+}
+
+// Initialize OpenGL resources
+bool initializeGL() {
+    // Create shader program
+    shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
+    if (!shaderProgram) {
+        std::cerr << "Failed to create shader program" << std::endl;
+        return false;
+    }
+    
+    // Create texture
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    
+    // Set texture parameters
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    
+    checkGLError("Texture setup");
+    return true;
+}
+
+// Update texture with current image data
+void updateTexture() {
+    if (imageNames.empty()) return;
+    
+    // Get current image
+    const std::string& imageName = imageNames[currentImageIndex];
+    const ImageData* imageData = imageLoader.getImage(imageName);
+    
+    if (imageData && imageData->isValid()) {
+        glBindTexture(GL_TEXTURE_2D, texture);
+        
+        // Determine format based on number of channels
+        GLenum format = (imageData->channels == 4) ? GL_RGBA : GL_RGB;
+        
+        // Update texture with image data
+        glTexImage2D(
+            GL_TEXTURE_2D, 0, format,
+            imageData->width, imageData->height, 0,
+            format, GL_UNSIGNED_BYTE, imageData->data.data()
+        );
+        
+        checkGLError("Texture update");
+    }
+    
+    // Move to next image for the next frame
+    currentImageIndex = (currentImageIndex + 1) % imageNames.size();
+    std::cout << "current image index: " << currentImageIndex << std::endl;
+}
+
+// Render a textured quad
+void renderTexturedQuad() {
+    // Vertex data for a quad (x, y, z, u, v)
+    const GLfloat vertices[] = {
+        // Positions     // Texture coords
+        -1.0f,  1.0f, 0.0f, 0.0f, 1.0f,  // Top left
+         1.0f,  1.0f, 0.0f, 1.0f, 1.0f,  // Top right
+         1.0f, -1.0f, 0.0f, 1.0f, 0.0f,  // Bottom right
+        -1.0f, -1.0f, 0.0f, 0.0f, 0.0f   // Bottom left
+    };
+    
+    // Indices for the quad
+    const GLushort indices[] = {
+        0, 1, 2,  // First triangle
+        0, 2, 3   // Second triangle
+    };
+    
+    // Use the shader program
+    glUseProgram(shaderProgram);
+    
+    // Get attribute locations
+    GLint posAttrib = glGetAttribLocation(shaderProgram, "aPosition");
+    GLint texCoordAttrib = glGetAttribLocation(shaderProgram, "aTexCoord");
+    
+    // Enable attributes
+    glEnableVertexAttribArray(posAttrib);
+    glEnableVertexAttribArray(texCoordAttrib);
+    
+    // Set vertex attribute pointers
+    glVertexAttribPointer(posAttrib, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), vertices);
+    glVertexAttribPointer(texCoordAttrib, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), vertices + 3);
+    
+    // Bind texture
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    
+    // Set texture uniform
+    GLint texUniform = glGetUniformLocation(shaderProgram, "uTexture");
+    glUniform1i(texUniform, 0);
+    
+    // Draw the quad
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, indices);
+    
+    // Disable attributes
+    glDisableVertexAttribArray(posAttrib);
+    glDisableVertexAttribArray(texCoordAttrib);
+    
+    checkGLError("Render quad");
+}
+
+// Clean up OpenGL resources
+void cleanupGL() {
+    if (texture) {
+        glDeleteTextures(1, &texture);
+        texture = 0;
+    }
+    
+    if (shaderProgram) {
+        glDeleteProgram(shaderProgram);
+        shaderProgram = 0;
+    }
+}
+
 int main() {
     try {
-        std::string photoDir = R"(E:\code\shaderDemo\photo)";
+        std::string photoDir = R"(E:\code\shaderDemo\photo2)";
         std::cout << "Looking for photos in: " << photoDir << std::endl;
 
         // Load images from photo directory
         ImageLoadOptions opt;
-        opt.maxImages = 100;
+        opt.maxImages = 10;
         if (imageLoader.loadImagesFromDirectory(photoDir, opt)) {
             std::cout << "Successfully loaded images from " << photoDir << std::endl;
             
-            // Print all loaded image names
-            std::vector<std::string> imageNames = imageLoader.getImageNames();
+            // Get all loaded image names
+            imageNames = imageLoader.getImageNames();
             std::cout << "Loaded images:" << std::endl;
             for (const auto& name : imageNames) {
                 const ImageData* img = imageLoader.getImage(name);
@@ -97,6 +306,7 @@ int main() {
             }
         } else {
             std::cout << "No images found in " << photoDir << " directory" << std::endl;
+            return -1;
         }
         
         // Create window
@@ -203,11 +413,25 @@ int main() {
         // Set viewport
         glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
         
+        // Initialize OpenGL resources
+        if (!initializeGL()) {
+            std::cerr << "Failed to initialize OpenGL resources" << std::endl;
+            eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            eglDestroyContext(display, context);
+            eglDestroySurface(display, surface);
+            eglTerminate(display);
+            return -1;
+        }
+        
         // Message loop
         MSG msg = {};
         bool running = true;
         
         std::cout << "Starting render loop..." << std::endl;
+        
+        // Frame timing variables for 30 FPS
+        const std::chrono::milliseconds frameTime(33); // ~30 FPS (1000ms / 30 = 33.33ms)
+        std::chrono::steady_clock::time_point lastFrameTime = std::chrono::steady_clock::now();
         
         while (running) {
             // Process Windows messages
@@ -220,15 +444,38 @@ int main() {
                 DispatchMessage(&msg);
             }
             
-            // Render frame
-            glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
+            // Calculate time since last frame
+            auto currentTime = std::chrono::steady_clock::now();
+            auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+                currentTime - lastFrameTime);
             
-            // Swap buffers
-            eglSwapBuffers(display, surface);
+            // Only render if enough time has passed (for 30 FPS)
+            if (elapsedTime >= frameTime) {
+                // Update texture with current image
+                updateTexture();
+                
+                // Clear the screen
+                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT);
+                
+                // Render the textured quad
+                renderTexturedQuad();
+                
+                // Swap buffers
+                eglSwapBuffers(display, surface);
+                
+                // Update last frame time
+                lastFrameTime = currentTime;
+            } else {
+                // Sleep to avoid excessive CPU usage
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
         }
         
         std::cout << "Cleaning up resources..." << std::endl;
+        
+        // Clean up OpenGL resources
+        cleanupGL();
         
         // Clean up EGL resources
         eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
