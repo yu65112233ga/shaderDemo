@@ -12,11 +12,21 @@ include_directories(${CMAKE_SOURCE_DIR}/thirdparty/angle/include)
 # Add stb include directory
 include_directories(${CMAKE_SOURCE_DIR}/thirdparty)
 
+# Include project directories
+include_directories(${CMAKE_SOURCE_DIR})
+
 # Add ANGLE library directories
 link_directories(${CMAKE_SOURCE_DIR}/thirdparty/angle/libs)
 
+# Source files
+set(SOURCES
+    main.cpp
+    reader/ImageLoader.cpp
+    render/Renderer.cpp
+)
+
 # Add executable
-add_executable(shaderDemo main.cpp ImageLoader.cpp)
+add_executable(shaderDemo ${SOURCES})
 
 # Link ANGLE libraries
 target_link_libraries(shaderDemo
