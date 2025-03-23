@@ -75,31 +75,13 @@ void checkEGLError(const char* msg) {
 
 int main() {
     try {
-        // Print current directory
-        char buffer[MAX_PATH];
-        GetCurrentDirectoryA(MAX_PATH, buffer);
-        std::cout << "Current directory: " << buffer << std::endl;
-        
-        // Get the executable directory
-        std::filesystem::path exePath(buffer);
-        std::filesystem::path projectRoot = exePath;
-        
-        // If we're in the build directory, go up one level
-        if (exePath.filename() == "build" || exePath.filename() == "Debug" || exePath.filename() == "Release") {
-            projectRoot = exePath.parent_path();
-        }
-        if (projectRoot.filename() == "Debug" || projectRoot.filename() == "Release") {
-            projectRoot = projectRoot.parent_path().parent_path();
-        }
-        
-        // Construct the absolute path to the photo directory
-        std::filesystem::path photoPath = projectRoot / "photo";
-        std::string photoDir = photoPath.string();
-        
+        std::string photoDir = R"(E:\code\shaderDemo\photo)";
         std::cout << "Looking for photos in: " << photoDir << std::endl;
-        
+
         // Load images from photo directory
-        if (imageLoader.loadImagesFromDirectory(photoDir)) {
+        ImageLoadOptions opt;
+        opt.maxImages = 100;
+        if (imageLoader.loadImagesFromDirectory(photoDir, opt)) {
             std::cout << "Successfully loaded images from " << photoDir << std::endl;
             
             // Print all loaded image names

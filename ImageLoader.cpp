@@ -67,87 +67,27 @@ bool ImageLoader::loadImagesFromDirectory(const std::string& directory, const Im
         // Load the image
         int width, height, channels;
         stbi_set_flip_vertically_on_load(false); // Don't flip the image vertically
-        
-        // If maxResolution is set, use it to resize the image during loading
-        if (options.maxResolution > 0) {
-            // First get the original dimensions
-            int origWidth, origHeight, origChannels;
-            if (!stbi_info(filePath.c_str(), &origWidth, &origHeight, &origChannels)) {
-                std::cerr << "Failed to get image info: " << filePath << std::endl;
-                continue;
-            }
-            
-            // Calculate the resize factor
-            float factor = 1.0f;
-            if (origWidth > origHeight) {
-                if (origWidth > options.maxResolution) {
-                    factor = static_cast<float>(options.maxResolution) / origWidth;
-                }
-            } else {
-                if (origHeight > options.maxResolution) {
-                    factor = static_cast<float>(options.maxResolution) / origHeight;
-                }
-            }
-            
-            // Load the image with resizing
-            unsigned char* data = nullptr;
-            if (factor < 1.0f) {
-                // Calculate new dimensions
-                int newWidth = static_cast<int>(origWidth * factor);
-                int newHeight = static_cast<int>(origHeight * factor);
-                
-                // Load and resize
-                data = stbi_load_from_file_with_hq_2x(fopen(filePath.c_str(), "rb"), &width, &height, &channels, 0);
-                
-                if (!data) {
-                    // Fall back to regular loading if high-quality resize fails
-                    data = stbi_load(filePath.c_str(), &width, &height, &channels, 0);
-                }
-            } else {
-                // Load at original size
-                data = stbi_load(filePath.c_str(), &width, &height, &channels, 0);
-            }
-            
-            if (data) {
-                // Calculate the size of the image data
-                size_t dataSize = width * height * channels;
-                
-                // Store the image data
-                images[baseName] = ImageData(width, height, channels, data, dataSize);
-                
-                // Free the image data loaded by stb_image
-                stbi_image_free(data);
-                
-                loadedCount++;
-                if (options.verbose) {
-                    std::cout << "Loaded image: " << baseName << " (" << width << "x" << height << ", " 
-                              << channels << " channels)" << std::endl;
-                }
-            } else {
-                std::cerr << "Failed to load image: " << filePath << std::endl;
+
+        // Load at original size
+        unsigned char* data = stbi_load(filePath.c_str(), &width, &height, &channels, 0);
+
+        if (data) {
+            // Calculate the size of the image data
+            size_t dataSize = width * height * channels;
+
+            // Store the image data
+            images[baseName] = ImageData(width, height, channels, data, dataSize);
+
+            // Free the image data loaded by stb_image
+            stbi_image_free(data);
+
+            loadedCount++;
+            if (options.verbose) {
+                std::cout << "Loaded image: " << baseName << " (" << width << "x" << height << ", "
+                          << channels << " channels)" << std::endl;
             }
         } else {
-            // Load at original size
-            unsigned char* data = stbi_load(filePath.c_str(), &width, &height, &channels, 0);
-            
-            if (data) {
-                // Calculate the size of the image data
-                size_t dataSize = width * height * channels;
-                
-                // Store the image data
-                images[baseName] = ImageData(width, height, channels, data, dataSize);
-                
-                // Free the image data loaded by stb_image
-                stbi_image_free(data);
-                
-                loadedCount++;
-                if (options.verbose) {
-                    std::cout << "Loaded image: " << baseName << " (" << width << "x" << height << ", " 
-                              << channels << " channels)" << std::endl;
-                }
-            } else {
-                std::cerr << "Failed to load image: " << filePath << std::endl;
-            }
+            std::cerr << "Failed to load image: " << filePath << std::endl;
         }
     }
     

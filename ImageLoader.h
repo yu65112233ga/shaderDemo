@@ -24,10 +24,9 @@ struct ImageData {
 // Options for loading images
 struct ImageLoadOptions {
     int maxImages;       // Maximum number of images to load (0 = no limit)
-    int maxResolution;   // Maximum resolution (width or height) to load (0 = original resolution)
     bool verbose;        // Print detailed loading information
     
-    ImageLoadOptions() : maxImages(0), maxResolution(0), verbose(true) {}
+    ImageLoadOptions() : maxImages(0), verbose(true) {}
 };
 
 class ImageLoader {
