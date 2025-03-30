@@ -9,11 +9,11 @@ HWND hWnd = nullptr;
 const int WINDOW_WIDTH = 800;
 const int WINDOW_HEIGHT = 600;
 ImageLoader imageLoader;
+static Renderer* renderer = nullptr;
 
 // Window procedure
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    static Renderer* renderer = nullptr;
-    
+
     switch (message) {
     case WM_CLOSE:
         PostQuitMessage(0);
@@ -87,7 +87,7 @@ int main() {
 
         // Load images from photo directory
         ImageLoadOptions opt;
-        opt.maxImages = 10;
+        opt.maxImages = 60;
         if (imageLoader.loadImagesFromDirectory(photoDir, opt)) {
             std::cout << "Successfully loaded images from " << photoDir << std::endl;
             
@@ -116,13 +116,13 @@ int main() {
         }
 
         // Create renderer
-        Renderer renderer(hWnd, WINDOW_WIDTH, WINDOW_HEIGHT, imageLoader);
-        
+        renderer = new Renderer(hWnd, WINDOW_WIDTH, WINDOW_HEIGHT, imageLoader);
+
         // Store renderer pointer for window procedure
-        SetWindowLongPtr(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&renderer));
+        SetWindowLongPtr(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(renderer));
         
         // Start renderer in a separate thread
-        if (!renderer.start()) {
+        if (!renderer->start()) {
             std::cerr << "Failed to start renderer" << std::endl;
             return -1;
         }
@@ -149,7 +149,7 @@ int main() {
         }
         
         std::cout << "Stopping renderer..." << std::endl;
-        renderer.stop();
+        renderer->stop();
         
         std::cout << "Program exited normally" << std::endl;
     } catch (const std::exception& e) {
