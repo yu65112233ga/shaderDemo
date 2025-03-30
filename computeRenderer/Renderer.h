@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <iostream>
 #include <angle_gl.h>
@@ -52,11 +52,15 @@ private:
     EGLSurface surface;
 
     // Shader program and texture variables
-    GLuint shaderProgram;
-    GLuint texture;
+    GLuint computeShaderProgram;
+    GLuint renderShaderProgram;
+    GLuint inputTexture;  // Input texture containing the image
+    GLuint outputTexture; // Output texture for compute shader results
+    GLuint framebuffer;   // Framebuffer for rendering the final result
     
-    // Uniform location
-    GLint uTextureLocation;
+    // Uniform locations
+    GLint uInputTextureLocation;
+    GLint uOutputTextureLocation;
     
     // Performance measurement
     std::chrono::high_resolution_clock::time_point frameStartTime;
@@ -67,9 +71,10 @@ private:
     // Frame statistics
     int frameCount;
     double totalRenderTime; // Total render time in milliseconds
-    const int statsResetInterval = 60; // Reset statistics every 100 frames
+    const int statsResetInterval = 60; // Reset statistics every 60 frames
 
     // Shader sources
+    // Simple vertex and fragment shaders for final display
     const char* vertexShaderSource = R"(
         attribute vec4 aPosition;
         attribute vec2 aTexCoord;
@@ -80,7 +85,7 @@ private:
         }
     )";
 
-    const char* fragmentShaderSourceOld = R"(
+    const char* fragmentShaderSource = R"(
         precision mediump float;
         varying vec2 vTexCoord;
         uniform sampler2D uTexture;
@@ -89,20 +94,52 @@ private:
         }
     )";
 
-    // 组合着色器代码片段
-//    const char* fragmentShaderSource = fragmentShaderSourcePart1;
-//    const char* fragmentShaderSourcePart2Ptr = fragmentShaderSourcePart2;
-     const char* fragmentShaderSource = fragmentShaderSourceOld;
-     const char* fragmentShaderSourcePart2Ptr = nullptr;
+    // Compute shader source
+    const char* computeShaderSource = R"(
+        #version 310 es
+        layout(local_size_x = 16, local_size_y = 16) in;
+        layout(binding = 0, rgba8) uniform readonly highp image2D inputImage;
+        layout(binding = 1, rgba8) uniform writeonly highp image2D outputImage;
+        
+        void main() {
+            // Get the pixel coordinate
+            ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
+            
+            // Read the input pixel
+            vec4 texColor = imageLoad(inputImage, pixelCoord);
+            
+            // Basic image processing - you can add more complex logic here
+            float luminance = dot(texColor.rgb, vec3(0.299, 0.587, 0.114));
+            
+            // Apply some effects based on pixel position and luminance
+            if (luminance > 0.5) {
+                // Brighten bright areas
+                texColor.rgb *= 1.2;
+            } else {
+                // Apply a color tint to dark areas
+                texColor.r *= 0.8;
+                texColor.g *= 0.9;
+                texColor.b *= 1.1;
+            }
+            
+            // Ensure values are in valid range
+            texColor = clamp(texColor, 0.0, 1.0);
+            
+            // Write the output pixel
+            imageStore(outputImage, pixelCoord, texColor);
+        }
+    )";
 
     // Private methods
     void renderLoop();
     bool initializeGL();
     void cleanupGL();
     GLuint compileShader(GLenum type, const char* source);
-    GLuint createShaderProgram(const char* vertexSource, const char* fragmentSource);
+    GLuint createComputeShaderProgram(const char* computeSource);
+    GLuint createRenderShaderProgram(const char* vertexSource, const char* fragmentSource);
     void updateTexture();
-    void renderTexturedQuad();
+    void processImageWithCompute();
+    void renderProcessedImage();
     void nextFrame();
     void previousFrame();
 

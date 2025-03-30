@@ -23,6 +23,7 @@ set(SOURCES
     main.cpp
     reader/ImageLoader.cpp
     render/Renderer.cpp
+    computeRenderer/Renderer.cpp
 )
 
 # Add executable
