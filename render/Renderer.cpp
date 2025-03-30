@@ -1,11 +1,13 @@
-#include "Renderer.h"
+﻿#include "Renderer.h"
 
 Renderer::Renderer(HWND hWnd, int width, int height, ImageLoader& imageLoader)
     : hWnd(hWnd), width(width), height(height), imageLoader(imageLoader),
       currentImageIndex(0), paused(false), shouldStepForward(false),
       shouldStepBackward(false), running(false),
       display(EGL_NO_DISPLAY), config(nullptr), context(EGL_NO_CONTEXT),
-      surface(EGL_NO_SURFACE), shaderProgram(0), texture(0) {
+      surface(EGL_NO_SURFACE), shaderProgram(0), texture(0), lastFrameTime(0.0),
+      frameCount(0), totalRenderTime(0.0), lastFrameTimePoint(std::chrono::steady_clock::now()),
+      frameStartTime(std::chrono::steady_clock::now()), frameEndTime(std::chrono::steady_clock::now()), statsResetInterval(60) {
     // Get all loaded image names
     imageNames = imageLoader.getImageNames();
 }
@@ -186,7 +188,6 @@ void Renderer::renderLoop() {
     
     // Frame timing variables for 30 FPS
     const std::chrono::milliseconds frameTime(33); // ~30 FPS (1000ms / 30 = 33.33ms)
-    std::chrono::steady_clock::time_point lastFrameTime = std::chrono::steady_clock::now();
     
     while (running) {
         // Handle single step controls
@@ -201,15 +202,15 @@ void Renderer::renderLoop() {
         // Calculate time since last frame
         auto currentTime = std::chrono::steady_clock::now();
         auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(
-            currentTime - lastFrameTime);
+            currentTime - lastFrameTimePoint);
         
         // Only render if enough time has passed (for 30 FPS) and not paused
-        if (elapsedTime >= frameTime && !paused) {
+        if (elapsedTime.count() >= frameTime.count() && !paused) {
             // Update texture with next image
             nextFrame();
             
             // Update last frame time
-            lastFrameTime = currentTime;
+            lastFrameTimePoint = currentTime;
         }
         
         // Always render the current frame
@@ -295,37 +296,67 @@ GLuint Renderer::compileShader(GLenum type, const char* source) {
 }
 
 GLuint Renderer::createShaderProgram(const char* vertexSource, const char* fragmentSource) {
+    // Compile vertex shader
     GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSource);
-    if (!vertexShader) return 0;
+    if (!vertexShader) {
+        std::cerr << "Failed to compile vertex shader" << std::endl;
+        return 0;
+    }
+
+    // Compile fragment shader
+    // If fragmentShaderSourcePart2Ptr is not null, combine it with fragmentSource
+//    GLuint fragmentShader =  compileShader(GL_FRAGMENT_SHADER, fragmentSource);
+    GLuint fragmentShader;
+    if (fragmentShaderSourcePart2Ptr) {
+        // Combine fragment shader sources
+        std::string combinedSource = fragmentSource;
+        combinedSource += fragmentShaderSourcePart2Ptr;
+        fragmentShader = compileShader(GL_FRAGMENT_SHADER, combinedSource.c_str());
+    } else {
+        // Use single fragment shader source
+        fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
+    }
     
-    GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
     if (!fragmentShader) {
+        std::cerr << "Failed to compile fragment shader" << std::endl;
         glDeleteShader(vertexShader);
         return 0;
     }
-    
+
+    // Create program and attach shaders
     GLuint program = glCreateProgram();
     glAttachShader(program, vertexShader);
     glAttachShader(program, fragmentShader);
+
+    // Link program
     glLinkProgram(program);
-    
-    // Check linking status
-    GLint success;
-    glGetProgramiv(program, GL_LINK_STATUS, &success);
-    if (!success) {
-        GLchar infoLog[512];
-        glGetProgramInfoLog(program, sizeof(infoLog), NULL, infoLog);
-        std::cerr << "Shader program linking error: " << infoLog << std::endl;
+
+    // Check link status
+    GLint linked;
+    glGetProgramiv(program, GL_LINK_STATUS, &linked);
+    if (!linked) {
+        GLint infoLen = 0;
+        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &infoLen);
+        if (infoLen > 1) {
+            std::vector<char> infoLog(infoLen);
+            glGetProgramInfoLog(program, infoLen, NULL, infoLog.data());
+            std::cerr << "Error linking program: " << infoLog.data() << std::endl;
+        }
         glDeleteProgram(program);
         glDeleteShader(vertexShader);
         glDeleteShader(fragmentShader);
         return 0;
     }
-    
-    // Shaders can be deleted after linking
+
+    // Detach and delete shaders (no longer needed after linking)
+    glDetachShader(program, vertexShader);
+    glDetachShader(program, fragmentShader);
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
-    
+
+    // Get uniform locations
+    uTextureLocation = glGetUniformLocation(program, "uTexture");
+
     return program;
 }
 
@@ -385,13 +416,15 @@ void Renderer::renderTexturedQuad() {
         return;
     }
     
+    // Start timing this frame
+    frameStartTime = std::chrono::high_resolution_clock::now();
+    
     // Use the shader program
     glUseProgram(shaderProgram);
     
-    // Get attribute and uniform locations
+    // Get attribute locations
     GLint positionLoc = glGetAttribLocation(shaderProgram, "aPosition");
     GLint texCoordLoc = glGetAttribLocation(shaderProgram, "aTexCoord");
-    GLint textureLoc = glGetUniformLocation(shaderProgram, "uTexture");
     
     // Vertex data for a quad (x, y, z, u, v)
     const float vertices[] = {
@@ -413,10 +446,22 @@ void Renderer::renderTexturedQuad() {
     // Set active texture and uniform
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture);
-    glUniform1i(textureLoc, 0);
+    glUniform1i(uTextureLocation, 0);
     
-    // Draw quad
+    // 强制 GPU 同步以确保准确的性能测量
+    glFinish();
+    
+    // 开始实际的渲染计时
+    auto renderStartTime = std::chrono::high_resolution_clock::now();
+
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    
+    // 确保所有渲染完成
+    glFinish();
+    
+    // 结束渲染计时
+    auto renderEndTime = std::chrono::high_resolution_clock::now();
+    double renderTime = std::chrono::duration<double, std::milli>(renderEndTime - renderStartTime).count();
     
     // Disable vertex attributes
     glDisableVertexAttribArray(positionLoc);
@@ -424,6 +469,28 @@ void Renderer::renderTexturedQuad() {
     
     // Unbind shader program
     glUseProgram(0);
+    
+    // End timing this frame
+    frameEndTime = std::chrono::high_resolution_clock::now();
+    lastFrameTime = std::chrono::duration<double, std::milli>(frameEndTime - renderStartTime).count();
+    
+    // Update frame statistics
+    frameCount++;
+    totalRenderTime += lastFrameTime; // 使用每次迭代的平均时间
+
+    // Check if we need to report and reset statistics
+    if (frameCount >= statsResetInterval) {
+        double averageRenderTime = totalRenderTime / frameCount;
+        std::cout << "\n===== Performance Statistics =====" << std::endl;
+        std::cout << "Frames rendered: " << frameCount << std::endl;
+        std::cout << "Total render time: " << totalRenderTime << " ms" << std::endl;
+        std::cout << "Average render time per iteration: " << averageRenderTime << " ms" << std::endl;
+        std::cout << "================================\n" << std::endl;
+        
+        // Reset statistics
+        frameCount = 0;
+        totalRenderTime = 0.0;
+    }
     
     checkGLError("renderTexturedQuad");
 }
